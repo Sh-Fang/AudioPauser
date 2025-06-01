@@ -1,17 +1,18 @@
 package com.example.audiopauser.ui.screen
 
-import android.widget.NumberPicker
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.audiopauser.ui.component.NumberPickerView
 import com.example.audiopauser.viewmodel.CountdownViewModel
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun AudioPauserScreen() {
     val viewModel: CountdownViewModel = viewModel()

@@ -1,92 +1,108 @@
 package com.example.audiopauser.service
 
-import android.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.audiopauser.R
 import com.example.audiopauser.model.AudioFocusController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 class CountdownService : Service() {
-    private val handler = Handler(Looper.getMainLooper())
-    private var remainingSeconds = 0
-    private var audioFocusController: AudioFocusController? = null
+    private val binder = CountdownBinder()
 
-    override fun onCreate() {
-        super.onCreate()
-        audioFocusController = AudioFocusController(applicationContext)
+    private val _timeFlow = MutableStateFlow(0)
+    val timeFlow: StateFlow<Int> = _timeFlow
+
+    private var totalSeconds = 0
+    private var isRunning = false
+    private var job: Job? = null
+
+    inner class CountdownBinder : Binder() {
+        fun getService(): CountdownService = this@CountdownService
+        fun getTimeFlow(): StateFlow<Int> = timeFlow
     }
+
+    override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        remainingSeconds = intent?.getIntExtra("duration", 0) ?: 0
-
-        startForegroundNotification()
+        totalSeconds = intent?.getIntExtra("duration", 0) ?: 0
+        startForegroundWithNotification()
         startCountdown()
-
-        return START_NOT_STICKY
+        return START_STICKY
     }
+
 
     private fun startCountdown() {
-        handler.post(object : Runnable {
-            override fun run() {
-                if (remainingSeconds > 0) {
-                    updateNotification(remainingSeconds)
-                    remainingSeconds--
-                    handler.postDelayed(this, 1000)
-                } else {
-                    val success = audioFocusController?.pauseOtherApps() ?: false
-                    audioFocusController?.releaseAudioFocus()
-                    stopForeground(true)
-                    stopSelf()
-                }
+        if (isRunning) return
+        isRunning = true
+        job = CoroutineScope(Dispatchers.Default).launch {
+            var remaining = totalSeconds
+            while (remaining >= 0) {
+                _timeFlow.value = remaining
+                updateNotification(remaining)
+                delay(1000)
+                remaining--
             }
-        })
+            // Countdown finished
+            stopForeground(STOP_FOREGROUND_REMOVE) // Remove the notification
+            stopSelf() // Stop the service
+        }
     }
 
-    private fun startForegroundNotification() {
+    private fun updateNotification(remainingSeconds: Int) {
         val channelId = "countdown_channel"
-        val channelName = "Countdown Timer"
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("倒计时运行中")
+            .setContentText("剩余时间: $remainingSeconds 秒") // Update text with remaining time
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setOnlyAlertOnce(true) // Prevents the notification from making sound/vibrating on update
+            .build()
+
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.notify(
+            1,
+            notification
+        )
+    }
+
+    // Modify startForegroundWithNotification to call updateNotification initially
+    private fun startForegroundWithNotification() {
+        val channelId = "countdown_channel"
+        val channelName = "倒计时服务"
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val chan = NotificationChannel(
-                channelId,
-                channelName,
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(chan)
+            val chan =
+                NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(chan)
         }
 
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("倒计时进行中")
-            .setContentText("音频将被暂停")
-            .setSmallIcon(R.drawable.ic_lock_idle_alarm)
-            .build()
+        // Call updateNotification to create the initial notification
+        updateNotification(totalSeconds)
 
-        startForeground(1, notification)
+        val initialNotification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("倒计时运行中")
+            .setContentText("倒计时初始化...")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .build()
+        startForeground(1, initialNotification)
     }
 
-    private fun updateNotification(secondsLeft: Int) {
-        val hours = secondsLeft / 3600
-        val minutes = (secondsLeft % 3600) / 60
-        val seconds = secondsLeft % 60
-
-        val text = String.format("%02d:%02d:%02d", hours, minutes, seconds)
-
-        val notification = NotificationCompat.Builder(this, "countdown_channel")
-            .setContentTitle("倒计时中")
-            .setContentText("剩余时间：$text")
-            .setSmallIcon(R.drawable.ic_lock_idle_alarm)
-            .build()
-
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(1, notification)
+    override fun onDestroy() {
+        super.onDestroy()
+        job?.cancel()
     }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 }

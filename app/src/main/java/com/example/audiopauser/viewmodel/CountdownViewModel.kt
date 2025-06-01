@@ -1,8 +1,17 @@
 package com.example.audiopauser.viewmodel
 
 import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.ServiceConnection
+import android.os.Build
+import android.os.IBinder
+import android.util.Log
+import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audiopauser.model.AudioFocusController
@@ -12,36 +21,70 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 class CountdownViewModel(application: Application) : AndroidViewModel(application) {
-    private val context: Context = application.applicationContext
-    private val audioFocusController = AudioFocusController(context)
+    private val context = application.applicationContext
 
-    private val _statusMessage = MutableStateFlow("")
+    private val _statusMessage = MutableStateFlow("⏳ 等待中...")
     val statusMessage: StateFlow<String> = _statusMessage
 
     var hours = MutableStateFlow(0)
     var minutes = MutableStateFlow(0)
     var seconds = MutableStateFlow(10)
 
-    fun startCountdown() {
-        val totalSeconds = hours.value * 3600 + minutes.value * 60 + seconds.value
-        if (totalSeconds > 0) {
-            viewModelScope.launch {
-                val gotFocus = audioFocusController.pauseOtherApps()
-                val intent = Intent(context, CountdownService::class.java)
-                intent.putExtra("duration", totalSeconds)
-                context.startForegroundService(intent)
-                _statusMessage.value = if (gotFocus) {
-                    "⏳ 倒计时已开始，音频焦点已请求"
-                } else {
-                    "⏳ 倒计时已开始，但请求音频焦点失败"
+    private var service: CountdownService? = null
+    private var isBound = false
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val countdownBinder = binder as? CountdownService.CountdownBinder
+            service = countdownBinder?.getService()
+            val flow = countdownBinder?.getTimeFlow()
+
+            // 开始监听倒计时
+            flow?.let {
+                viewModelScope.launch {
+                    it.collect { sec ->
+                        val h = sec / 3600
+                        val m = (sec % 3600) / 60
+                        val s = sec % 60
+                        _statusMessage.value = String.format("⏳ 剩余时间：%02d:%02d:%02d", h, m, s)
+                    }
                 }
             }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            service = null
+            isBound = false
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    fun startCountdown() {
+        val totalSec = hours.value * 3600 + minutes.value * 60 + seconds.value
+        if (totalSec > 0) {
+            val intent = Intent(context, CountdownService::class.java)
+            intent.putExtra("duration", totalSec)
+            ContextCompat.startForegroundService(context, intent)
+            bindToService()
         } else {
             _statusMessage.value = "⚠️ 请选择有效时间"
         }
     }
 
-    fun releaseFocus() {
-        audioFocusController.releaseAudioFocus()
+    private fun bindToService() {
+        if (!isBound) {
+            val intent = Intent(context, CountdownService::class.java)
+            context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+            isBound = true
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        if (isBound) {
+            context.unbindService(connection)
+            isBound = false
+        }
     }
 }
+
