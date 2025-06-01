@@ -1,4 +1,4 @@
-package com.example.audiopauser
+package com.example.audiopauser.model
 
 import android.content.Context
 import android.media.AudioAttributes

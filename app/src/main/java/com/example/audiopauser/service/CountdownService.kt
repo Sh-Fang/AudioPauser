@@ -1,10 +1,16 @@
-package com.example.audiopauser
+package com.example.audiopauser.service
 
-import android.app.*
-import android.content.Context
+import android.R
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
 import android.content.Intent
-import android.os.*
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
+import com.example.audiopauser.model.AudioFocusController
 
 class CountdownService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -52,14 +58,14 @@ class CountdownService : Service() {
                 channelName,
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(chan)
         }
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("倒计时进行中")
             .setContentText("音频将被暂停")
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_lock_idle_alarm)
             .build()
 
         startForeground(1, notification)
@@ -75,10 +81,10 @@ class CountdownService : Service() {
         val notification = NotificationCompat.Builder(this, "countdown_channel")
             .setContentTitle("倒计时中")
             .setContentText("剩余时间：$text")
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_lock_idle_alarm)
             .build()
 
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(1, notification)
     }
 
